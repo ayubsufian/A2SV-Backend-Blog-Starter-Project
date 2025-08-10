@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mikiasgoitom/A2SV-Backend-Blog-Starter-Project/internal/domain/contract"
@@ -18,13 +19,15 @@ type BlogRepository struct {
 	collection          *mongo.Collection // For blog posts
 	usersCollection     *mongo.Collection // For accessing user data for search
 	blogViewsCollection *mongo.Collection // For tracking blog views
+	blogTagsCollection  *mongo.Collection
 }
 
 // NewBlogRepository creates and returns a new BlogRepository instance.
-func NewBlogRepository(db *mongo.Database) *BlogRepository {
+func NewBlogRepository(db *mongo.Database, user *mongo.Collection) *BlogRepository {
 	return &BlogRepository{
 		collection:          db.Collection("blogs"),
-		usersCollection:     db.Collection("users"),
+		blogTagsCollection:  db.Collection("blog_tags"),
+		usersCollection:     user,
 		blogViewsCollection: db.Collection("blog_views"),
 	}
 }
@@ -164,7 +167,7 @@ func (r *BlogRepository) GetBlogs(ctx context.Context, filterOptions *contract.B
 
 	// Add conditional stages for author details and search when necessary
 	// This makes GetBlogs more flexible, addressing a point from the review
-	if filterOptions.AuthorID != nil || sortStage.sortKey == "authorDetails" {
+	if filterOptions.AuthorID != nil || strings.HasPrefix(sortStage.sortKey, "authorDetails.") {
 		pipeline = append(pipeline,
 			bson.D{{Key: "$lookup", Value: bson.M{
 				"from":         "users",
@@ -258,7 +261,7 @@ func (r *BlogRepository) SearchBlogs(ctx context.Context, query string, filterOp
 	}
 
 	// Apply conditional stages for author details
-	if sortStage.sortKey == "authorDetails" {
+	if strings.HasPrefix(sortStage.sortKey, "authorDetails.") {
 		pipeline = append(pipeline,
 			bson.D{{Key: "$lookup", Value: bson.M{
 				"from":         "users",

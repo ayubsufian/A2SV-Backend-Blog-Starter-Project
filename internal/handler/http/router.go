@@ -2,30 +2,40 @@ package http
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/mikiasgoitom/A2SV-Backend-Blog-Starter-Project/internal/domain/contract"
 	"github.com/mikiasgoitom/A2SV-Backend-Blog-Starter-Project/internal/handler/http/middleware"
 	"github.com/mikiasgoitom/A2SV-Backend-Blog-Starter-Project/internal/usecase"
 	usecasecontract "github.com/mikiasgoitom/A2SV-Backend-Blog-Starter-Project/internal/usecase/contract"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Router struct {
 	userHandler        *UserHandler
 	blogHandler        *BlogHandler
+	emailHandler       *EmailHandler
 	interactionHandler *InteractionHandler
 	userUsecase        *usecase.UserUsecase
 	jwtService         usecase.JWTService
+	authHandler        *AuthHandler
 }
 
-func NewRouter(userUsecase usecasecontract.IUserUseCase, blogUsecase usecasecontract.IBlogUseCase, likeUsecase *usecase.LikeUsecase, jwtService usecase.JWTService) *Router {
+func NewRouter(userUsecase usecasecontract.IUserUseCase, blogUsecase usecase.IBlogUseCase, likeUsecase *usecase.LikeUsecase, emailVerUC usecasecontract.IEmailVerificationUC, userRepo contract.IUserRepository, tokenRepo contract.ITokenRepository, hasher contract.IHasher, jwtService usecase.JWTService, mailService contract.IEmailService, logger usecasecontract.IAppLogger, config usecasecontract.IConfigProvider, validator usecasecontract.IValidator, uuidGen contract.IUUIDGenerator, randomGen contract.IRandomGenerator) *Router {
+	baseURL := config.GetAppBaseURL()
 	return &Router{
 		userHandler:        NewUserHandler(userUsecase),
 		blogHandler:        NewBlogHandler(blogUsecase),
+		emailHandler:       NewEmailHandler(emailVerUC, userRepo),
 		interactionHandler: NewInteractionHandler(likeUsecase),
-		userUsecase:        usecase.NewUserUsecase(userUsecase, blogUsecase, likeUsecase, jwtService),
+		userUsecase:        usecase.NewUserUsecase(userRepo, tokenRepo, emailVerUC, hasher, jwtService, mailService, logger, config, validator, uuidGen, randomGen),
 		jwtService:         jwtService,
+		authHandler:        NewAuthHandler(userUsecase, baseURL),
 	}
 }
 
 func (r *Router) SetupRoutes(router *gin.Engine) {
+
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	router.GET("/api/v1/metrics", gin.WrapH(promhttp.Handler()))
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 
@@ -34,10 +44,16 @@ func (r *Router) SetupRoutes(router *gin.Engine) {
 	{
 		auth.POST("/register", r.userHandler.CreateUser)
 		auth.POST("/login", r.userHandler.Login)
-		auth.POST("/verify-email", r.userHandler.VerifyEmail)
+		auth.GET("/verify-email", r.emailHandler.HandleVerifyEmailToken)
 		auth.POST("/forgot-password", r.userHandler.ForgotPassword)
 		auth.POST("/reset-password", r.userHandler.ResetPassword)
 		auth.POST("/refresh-token", r.userHandler.RefreshToken)
+
+		auth.POST("/request-verification-email", r.emailHandler.HandleRequestEmailVerification)
+
+		// Google OAuth endpoints
+		auth.GET("/google/login", r.authHandler.HandleGoogleLogin)
+		auth.GET("/google/callback", r.authHandler.HandleGoogleCallback)
 	}
 
 	// Public user routes

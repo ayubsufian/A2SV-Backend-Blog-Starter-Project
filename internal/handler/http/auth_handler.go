@@ -17,11 +17,13 @@ import (
 
 type AuthHandler struct {
 	UserUseCase usecasecontract.IUserUseCase
+	BaseURL     string
 }
 
-func NewAuthHandler(uc usecasecontract.IUserUseCase) *AuthHandler {
+func NewAuthHandler(uc usecasecontract.IUserUseCase, baseURL string) *AuthHandler {
 	return &AuthHandler{
 		UserUseCase: uc,
+		BaseURL:     baseURL,
 	}
 }
 
@@ -30,12 +32,14 @@ type UserInfo struct {
 	Name  string
 }
 
-var googleOauthConfig = &oauth2.Config{
-	ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-	ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-	RedirectURL:  "http://localhost:8080/auth/google/callback",
-	Scopes:       []string{"email", "profile"},
-	Endpoint:     google.Endpoint,
+func (h *AuthHandler) googleOauthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  h.BaseURL + "/auth/google/callback",
+		Scopes:       []string{"email", "profile"},
+		Endpoint:     google.Endpoint,
+	}
 }
 
 func (h *AuthHandler) HandleGoogleLogin(ctx *gin.Context) {
@@ -44,7 +48,7 @@ func (h *AuthHandler) HandleGoogleLogin(ctx *gin.Context) {
 	oauthStateString := base64.URLEncoding.EncodeToString(b)
 	ctx.SetCookie("oauthState", oauthStateString, 300, "/", "localhost", false, true)
 
-	url := googleOauthConfig.AuthCodeURL(oauthStateString)
+	url := h.googleOauthConfig().AuthCodeURL(oauthStateString)
 	ctx.Redirect(http.StatusTemporaryRedirect, url)
 }
 
@@ -65,13 +69,13 @@ func (h *AuthHandler) HandleGoogleCallback(ctx *gin.Context) {
 
 	requestCtx := ctx.Request.Context()
 
-	token, err := googleOauthConfig.Exchange(requestCtx, code)
+	token, err := h.googleOauthConfig().Exchange(requestCtx, code)
 	if err != nil {
 		ctx.String(http.StatusInternalServerError, fmt.Sprintf("failed to exchange autherization for token: %v\n", err))
 		return
 	}
 
-	client := googleOauthConfig.Client(requestCtx, token)
+	client := h.googleOauthConfig().Client(requestCtx, token)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
 		ctx.String(http.StatusInternalServerError, fmt.Sprintf("Failed to get user info: %v", err))
