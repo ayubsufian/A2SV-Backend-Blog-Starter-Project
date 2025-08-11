@@ -65,6 +65,7 @@ func main() {
 	tokenRepo := mongodb.NewTokenRepository(mongoClient.Client.Database(dbName).Collection("tokens"))
 	blogRepo := mongodb.NewBlogRepository(mongoClient.Client.Database(dbName), userCollection)
 	likeRepo := mongodb.NewLikeRepository(mongoClient.Client.Database(dbName))
+	commentRepo := mongodb.NewCommentRepository(mongoClient.Client.Database(dbName))
 
 	// Dependency Injection: Services
 	hasher := passwordservice.NewHasher()
@@ -80,12 +81,15 @@ func main() {
 	appValidator := validator.NewValidator()
 	uuidGenerator := uuidgen.NewGenerator()
 	appConfig := config.NewConfig()
+	aiService := external_services.NewGeminiAIService(appConfig.GetAIServiceAPIKey())
+	// config
 	baseURL := appConfig.GetAppBaseURL()
 	// Dependency Injection: Usecases
+	aiUsecase := usecase.NewAIUseCase(aiService)
 	emailUsecase := usecase.NewEmailVerificationUseCase(tokenRepo, userRepo, mailService, randomGenerator, uuidGenerator, baseURL)
 	userUsecase := usecase.NewUserUsecase(userRepo, tokenRepo, emailUsecase, hasher, jwtService, mailService, appLogger, appConfig, appValidator, uuidGenerator, randomGenerator)
 
-	blogUsecase := usecase.NewBlogUseCase(blogRepo, uuidGenerator, appLogger)
+	blogUsecase := usecase.NewBlogUseCase(blogRepo, uuidGenerator, appLogger, aiUsecase)
 
 	// Pass Prometheus metrics to handlers or usecases as needed (import from metrics package)
 
@@ -101,7 +105,12 @@ func main() {
 	likeUsecase := usecase.NewLikeUsecase(likeRepo, blogRepo)
 
 	// Setup API routes
-	appRouter := handlerHttp.NewRouter(userUsecase, blogUsecase, likeUsecase, emailUsecase, userRepo, tokenRepo, hasher, jwtService, mailService, appLogger, appConfig, appValidator, uuidGenerator, randomGenerator)
+	appRouter := handlerHttp.NewRouter(
+		userUsecase, blogUsecase, likeUsecase, emailUsecase,
+		userRepo, tokenRepo, hasher, jwtService, mailService,
+		appLogger, appConfig, appValidator, uuidGenerator, randomGenerator,
+		commentRepo, blogRepo,
+	)
 	appRouter.SetupRoutes(router)
 
 	// Start the server
